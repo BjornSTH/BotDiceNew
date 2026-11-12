@@ -102,8 +102,9 @@ func handleUpdate(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	params := &bot.SendMessageParams{
-		ChatID: msg.Chat.ID,
-		Text:   reply,
+		ChatID:    msg.Chat.ID,
+		Text:      reply,
+		ParseMode: models.ParseModeHTML,
 		ReplyParameters: &models.ReplyParameters{
 			MessageID:                msg.ID,
 			AllowSendingWithoutReply: true,

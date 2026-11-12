@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"html"
 	"strings"
 
 	"botdice/internal/dice"
@@ -10,19 +11,20 @@ import (
 
 const (
 	maxRollsPerMessage = 20
-	// Лимит Telegram — 4096 символов; считаем в байтах, так что запас с лихвой.
+	// Лимит Telegram — 4096 символов без учёта HTML-тегов; считаем в байтах
+	// вместе с тегами, так что запас с лихвой.
 	maxReplyBytes = 4000
 )
 
 const helpText = `Бросок кубиков: напишите выражение, можно несколько через пробел или с новой строки.
 
 к20, d20, 3к6, к20+5, 2к6+1к4+3, к12-4
-пр к20+5 — с преимуществом (лучший из двух)
-пм к20+5 — с помехой (худший из двух)
+пр к20+5 или pr d20+5 — с преимуществом (лучший из двух)
+пм к20+5 или pm d20+5 — с помехой (худший из двух)
 
 Сообщения, начинающиеся с // или \\, бот игнорирует.`
 
-// buildReply превращает текст сообщения в ответ бота.
+// buildReply превращает текст сообщения в ответ бота в HTML-разметке Telegram.
 // Пустая строка — в сообщении нечего бросать, отвечать не нужно.
 func buildReply(text, player string, r dice.Rand) string {
 	text = strings.TrimSpace(text)
@@ -50,9 +52,9 @@ func buildReply(text, player string, r dice.Rand) string {
 		tok := tokens[i]
 		mode := ""
 		switch tok {
-		case "пр", "adv":
+		case "пр", "pr", "adv":
 			mode = "преимущество"
-		case "пм", "dis":
+		case "пм", "pm", "dis":
 			mode = "помеха"
 		}
 
@@ -62,10 +64,10 @@ func buildReply(text, player string, r dice.Rand) string {
 				continue
 			}
 			if err != nil {
-				lines = append(lines, fmt.Sprintf(">> %s: ошибка — %v", tok, err))
+				lines = append(lines, fmt.Sprintf(">> %s: ошибка — %v", html.EscapeString(tok), err))
 				continue
 			}
-			lines = append(lines, fmt.Sprintf(">> бросок %s: %s", expr, expr.Roll(r)))
+			lines = append(lines, fmt.Sprintf(">> бросок %s: %s", expr, formatResult(expr.Roll(r))))
 			continue
 		}
 
@@ -78,7 +80,7 @@ func buildReply(text, player string, r dice.Rand) string {
 		}
 		i++
 		if err != nil {
-			lines = append(lines, fmt.Sprintf(">> %s %s: ошибка — %v", mode, tokens[i], err))
+			lines = append(lines, fmt.Sprintf(">> %s %s: ошибка — %v", mode, html.EscapeString(tokens[i]), err))
 			continue
 		}
 		// Старый синтаксис "пр к20 к20": повтор того же выражения поглощаем.
@@ -92,14 +94,14 @@ func buildReply(text, player string, r dice.Rand) string {
 		if (mode == "преимущество") == (b.Total > a.Total) {
 			best, other = b, a
 		}
-		lines = append(lines, fmt.Sprintf(">> %s %s: %d — из %s и %s", mode, expr, best.Total, best, other))
+		lines = append(lines, fmt.Sprintf(">> %s %s: <b>%d</b> — из %s и %s", mode, expr, best.Total, best, other))
 	}
 
 	if len(lines) == 0 {
 		return ""
 	}
 
-	reply := player + ":"
+	reply := html.EscapeString(player) + ":"
 	for i, line := range lines {
 		if len(reply)+1+len(line) > maxReplyBytes {
 			reply += fmt.Sprintf("\n…ещё %d бросков не поместились в сообщение", len(lines)-i)
@@ -108,6 +110,11 @@ func buildReply(text, player string, r dice.Rand) string {
 		reply += "\n" + line
 	}
 	return reply
+}
+
+// formatResult выделяет итог жирным: "<b>25</b> (9 +16)".
+func formatResult(r dice.Result) string {
+	return fmt.Sprintf("<b>%d</b> (%s)", r.Total, r.Details())
 }
 
 // cleanToken убирает "/" команды, суффикс "@имябота" и знаки препинания по краям.
